@@ -2391,7 +2391,10 @@ class NativePlayer extends PlatformPlayer {
         'pause': 'yes',
         'keep-open': 'yes',
         'audio-display': 'no',
-        'network-timeout': '5',
+        // Configurable via PlayerConfiguration.network.networkTimeoutSeconds
+        // (defaults to mpv's traditional 5 s when null).
+        'network-timeout':
+            (configuration.network.networkTimeoutSeconds ?? 5).toString(),
         // https://github.com/mpv-player/mpv/commit/703f1588803eaa428e09c0e5547b26c0fff476a7
         // https://github.com/mpv-android/mpv-android/commit/9e5c3d8a630290fc41edb8b03aeafa3bc4c45955
         'scale': 'bilinear',
@@ -2415,6 +2418,8 @@ class NativePlayer extends PlatformPlayer {
         'subs-with-matching-audio': 'yes',
       };
       // Other properties based on [PlayerConfiguration].
+      final streamLavfOptions =
+          configuration.network.buildStreamLavfOptions();
       properties.addAll(
         {
           if (!configuration.osc) ...{
@@ -2431,6 +2436,10 @@ class NativePlayer extends PlatformPlayer {
             'allowed_extensions=ALL',
             'protocol_whitelist=[${configuration.protocolWhitelist.join(',')}]'
           ].join(','),
+          // Only set when the caller actually wants to override the
+          // default. Skipping the assignment when null keeps mpv's own
+          // built-in defaults intact.
+          if (streamLavfOptions != null) 'stream-lavf-o': streamLavfOptions,
           'sub-ass': configuration.libass ? 'yes' : 'no',
           'sub-visibility': configuration.libass ? 'yes' : 'no',
           'secondary-sub-visibility': configuration.libass ? 'yes' : 'no',

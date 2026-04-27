@@ -20,6 +20,7 @@ import 'package:media_kit/src/models/video_params.dart';
 import 'package:media_kit/src/models/player_state.dart';
 import 'package:media_kit/src/models/playlist_mode.dart';
 import 'package:media_kit/src/models/player_stream.dart';
+import 'package:media_kit/src/models/network_configuration.dart';
 
 /// {@template platform_player}
 /// PlatformPlayer
@@ -514,6 +515,18 @@ class PlayerConfiguration {
   /// Learn more: https://ffmpeg.org/ffmpeg-protocols.html#Protocol-Options
   final List<String> protocolWhitelist;
 
+  /// Tuning for ffmpeg's network demuxer behaviour. Use this to enable
+  /// HTTP reconnect (`stream-lavf-o=reconnect=1,...`) for live streams,
+  /// override mpv's default 5 second `network-timeout`, or pass extra
+  /// raw `stream-lavf-o` options.
+  ///
+  /// Default: a [NetworkConfiguration] with all knobs at their
+  /// historical defaults — i.e. reconnect disabled, timeout 5 s — to
+  /// preserve backward compatibility.
+  ///
+  /// {@macro network_configuration}
+  final NetworkConfiguration network;
+
   /// {@macro player_configuration}
   const PlayerConfiguration({
     this.vo = 'null',
@@ -539,6 +552,7 @@ class PlayerConfiguration {
       'https',
       'crypto',
     ],
+    this.network = const NetworkConfiguration(),
   });
 }
 
