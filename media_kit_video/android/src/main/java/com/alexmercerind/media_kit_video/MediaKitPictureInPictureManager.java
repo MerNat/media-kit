@@ -13,6 +13,7 @@ import android.os.Build;
 import android.util.Log;
 import android.util.Rational;
 
+import androidx.activity.ComponentActivity;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -209,7 +210,16 @@ final class MediaKitPictureInPictureManager {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || activity == null) {
             return;
         }
-        activity.addOnPictureInPictureModeChangedListener(info -> {
+        // addOnPictureInPictureModeChangedListener is on
+        // androidx.activity.ComponentActivity, not on android.app.Activity.
+        // FlutterActivity extends ComponentActivity (via FragmentActivity)
+        // so this cast succeeds in every standard Flutter app. Guard
+        // defensively in case a host embeds with a non-AndroidX Activity.
+        if (!(activity instanceof ComponentActivity)) {
+            Log.w(TAG, "Activity is not a ComponentActivity; PiP mode listener disabled");
+            return;
+        }
+        ((ComponentActivity) activity).addOnPictureInPictureModeChangedListener(info -> {
             if (info.isInPictureInPictureMode()) {
                 dispatchEvent("didStart", null);
             } else {
