@@ -36,3 +36,13 @@ android {
         consumerProguardFiles 'proguard-rules.pro'
     }
 }
+
+dependencies {
+    // Required for `addOnPictureInPictureModeChangedListener` on
+    // ComponentActivity (added in androidx.activity 1.7.0). Without
+    // this explicit pull, the consumer app's transitive androidx
+    // resolution may land on an older version where FragmentActivity's
+    // parent isn't `androidx.activity.ComponentActivity`, breaking
+    // the `instanceof` cast in MediaKitPictureInPictureManager.
+    implementation 'androidx.activity:activity:1.13.0'
+}

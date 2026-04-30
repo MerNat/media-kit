@@ -8,8 +8,12 @@
 package com.alexmercerind.media_kit_video;
 
 import android.app.Activity;
+import android.app.Application;
 import android.app.PictureInPictureParams;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.util.Rational;
 
@@ -51,6 +55,21 @@ final class MediaKitPictureInPictureManager {
     private boolean autoEnter = false;
     private int preferredWidth = 16;
     private int preferredHeight = 9;
+
+    // Lifecycle-based detection for PiP exit cause. Android's
+    // OnPictureInPictureModeChangedListener fires when PiP ends, but it
+    // does not tell us *why* (X-button vs tap-to-expand). Activity.isFinishing()
+    // is also unreliable: the X button just moves the activity to the stopped
+    // state, it does not finish it. So when PiP exits we defer the dispatch and
+    // let the next Activity lifecycle callback decide:
+    //   - onActivityResumed → user tapped to expand → dispatch "didStop"
+    //   - onActivityStopped → user closed PiP via X → dispatch "closed"
+    @Nullable
+    private Application.ActivityLifecycleCallbacks pipLifecycleCallbacks;
+    private boolean pendingPipExitDecision = false;
+    @Nullable
+    private Runnable pendingPipExitTimeout;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     MediaKitPictureInPictureManager(@NonNull BinaryMessenger messenger) {
         methodChannel = new MethodChannel(messenger, METHOD_CHANNEL);
@@ -211,32 +230,115 @@ final class MediaKitPictureInPictureManager {
             return;
         }
         // addOnPictureInPictureModeChangedListener is on
-        // androidx.activity.ComponentActivity, not on android.app.Activity.
-        // FlutterActivity extends ComponentActivity (via FragmentActivity)
-        // so this cast succeeds in every standard Flutter app. Guard
-        // defensively in case a host embeds with a non-AndroidX Activity.
+        // androidx.activity.ComponentActivity (not on android.app.Activity).
+        // Hosts using `FlutterFragmentActivity` (which extends
+        // FragmentActivity → ComponentActivity) get this for free; hosts
+        // using bare `FlutterActivity` (which extends android.app.Activity
+        // directly) need to migrate or the PiP mode listener won't work.
         if (!(activity instanceof ComponentActivity)) {
-            Log.w(TAG, "Activity is not a ComponentActivity; PiP mode listener disabled");
+            Log.w(TAG, "Activity is not a ComponentActivity — extend "
+                    + "FlutterFragmentActivity instead of FlutterActivity "
+                    + "to enable PiP exit detection. Activity is: "
+                    + activity.getClass().getName());
             return;
         }
         ((ComponentActivity) activity).addOnPictureInPictureModeChangedListener(info -> {
             if (info.isInPictureInPictureMode()) {
+                clearPendingPipExitDecision();
                 dispatchEvent("didStart", null);
             } else {
+                pendingPipExitDecision = true;
                 dispatchEvent("willStop", null);
-                final Activity a = activity;
-                if (a != null && a.isFinishing()) {
-                    dispatchEvent("closed", null);
-                } else {
-                    dispatchEvent("didStop", null);
-                }
+                schedulePendingExitTimeout();
             }
         });
+        registerLifecycleCallbacks();
     }
 
     private void unregisterModeChangedListener() {
-        // The Activity cleans up listeners when it is destroyed; detaching
-        // our reference is sufficient.
+        unregisterLifecycleCallbacks();
+        clearPendingPipExitDecision();
+        // The Activity cleans up its own PiP-mode listeners on destroy;
+        // detaching our reference is sufficient for those.
+    }
+
+    private void registerLifecycleCallbacks() {
+        if (activity == null || pipLifecycleCallbacks != null) {
+            return;
+        }
+        pipLifecycleCallbacks = new Application.ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityResumed(@NonNull Activity a) {
+                if (a == activity && pendingPipExitDecision) {
+                    clearPendingPipExitDecision();
+                    // Activity returned to the foreground → user tapped the
+                    // PiP window to expand the app back.
+                    dispatchEvent("didStop", null);
+                }
+            }
+
+            @Override
+            public void onActivityStopped(@NonNull Activity a) {
+                if (a == activity && pendingPipExitDecision) {
+                    clearPendingPipExitDecision();
+                    // Activity went to the stopped state without resuming →
+                    // user dismissed the PiP window via the X button.
+                    dispatchEvent("closed", null);
+                }
+            }
+
+            @Override public void onActivityCreated(@NonNull Activity a, @Nullable Bundle s) {}
+            @Override public void onActivityStarted(@NonNull Activity a) {}
+            @Override public void onActivityPaused(@NonNull Activity a) {}
+            @Override public void onActivitySaveInstanceState(@NonNull Activity a, @NonNull Bundle s) {}
+            @Override public void onActivityDestroyed(@NonNull Activity a) {}
+        };
+        try {
+            activity.getApplication().registerActivityLifecycleCallbacks(pipLifecycleCallbacks);
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to register lifecycle callbacks: " + t.getMessage());
+            pipLifecycleCallbacks = null;
+        }
+    }
+
+    private void unregisterLifecycleCallbacks() {
+        if (activity == null || pipLifecycleCallbacks == null) {
+            return;
+        }
+        try {
+            activity.getApplication().unregisterActivityLifecycleCallbacks(pipLifecycleCallbacks);
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to unregister lifecycle callbacks: " + t.getMessage());
+        }
+        pipLifecycleCallbacks = null;
+    }
+
+    /**
+     * Defensive fallback: if neither onActivityResumed nor onActivityStopped
+     * fires within a short window after PiP exits (e.g. unusual OEM behaviour),
+     * default to "closed" so the consumer pauses. Erring on the side of pausing
+     * is safer than leaving audio playing without a visible PiP window.
+     */
+    private void schedulePendingExitTimeout() {
+        if (pendingPipExitTimeout != null) {
+            mainHandler.removeCallbacks(pendingPipExitTimeout);
+        }
+        pendingPipExitTimeout = () -> {
+            if (pendingPipExitDecision) {
+                pendingPipExitDecision = false;
+                dispatchEvent("closed", null);
+            }
+            pendingPipExitTimeout = null;
+        };
+        mainHandler.postDelayed(pendingPipExitTimeout, 1000);
+    }
+
+    private void clearPendingPipExitDecision() {
+        pendingPipExitDecision = false;
+        if (pendingPipExitTimeout != null) {
+            mainHandler.removeCallbacks(pendingPipExitTimeout);
+            pendingPipExitTimeout = null;
+        }
     }
 
     private void dispatchEvent(@NonNull String name, @Nullable String reason) {
