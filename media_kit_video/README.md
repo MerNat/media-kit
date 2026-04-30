@@ -6,57 +6,46 @@ Native implementation for video playback in [package:media_kit](https://pub.dev/
 
 ## Picture-in-Picture
 
-Declarative Picture-in-Picture is available on iOS 15+ and Android 8.0+ (API 26). Pass a `PipConfig` to `Video`:
+Declarative PiP on iOS 15+ and Android 8.0+ (API 26):
 
 ```dart
 Video(
   controller: videoController,
-  pauseUponEnteringBackgroundMode: false,
-  pip: const PipConfig(autoEnter: true),
-  onPipEvent: (event) {
-    // Optional: observe lifecycle + play/pause events.
-  },
+  pauseUponEnteringBackgroundMode: false, // required with `pip:`
+  pip: const PipConfig(autoEnter: true, preferredSize: Size(16, 9)),
+  onPipEvent: (event) { /* optional */ },
 )
 ```
 
-For imperative control use `videoController.pictureInPicture`:
+Imperative control via `videoController.pictureInPicture.start(...) / .stop()`.
 
-```dart
-await videoController.pictureInPicture.start(
-  handle: await player.handle,
-  videoSize: const Size(1280, 720),
-);
-await videoController.pictureInPicture.stop();
-videoController.pictureInPicture.events.listen((event) {});
-```
+### Events
+
+`PipDidStop` (user tapped PiP to expand back) vs `PipClosed` (user dismissed via X / swipe) is the most useful distinction — keep playing on expand, pause/stop on close. Other events: `PipWillStart`, `PipDidStart`, `PipWillStop`, `PipFailed`, `PipRestore`, `PipSetPlaying`.
 
 ### Platform setup
 
-**iOS** — enable the `audio` background mode in `Info.plist`:
+**iOS** — `audio` background mode in `Info.plist`.
+
+**Android** — on the host Activity in `AndroidManifest.xml`:
 
 ```xml
-<key>UIBackgroundModes</key>
-<array>
-  <string>audio</string>
-</array>
+android:supportsPictureInPicture="true"
+android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+android:resizeableActivity="true"
 ```
 
-**Android** — mark the host Activity in `AndroidManifest.xml`:
+**Flutter on Android** — `MainActivity` must extend `FlutterFragmentActivity` (not `FlutterActivity`). PiP exit detection uses `addOnPictureInPictureModeChangedListener`, which only exists on `androidx.activity.ComponentActivity`.
 
-```xml
-<activity
-    android:name=".MainActivity"
-    android:supportsPictureInPicture="true"
-    android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-    android:resizeableActivity="true"
-    ... />
-```
+### Tips
+
+- Pass `pauseUponEnteringBackgroundMode: false` alongside `pip:` — the default pauses on background, which is when PiP starts.
+- Hide your player chrome at PiP size (use `LayoutBuilder`, render bare `Video` when `constraints.maxHeight < 400`).
+- If your app has multiple `Video` widgets sharing a controller, re-call `pictureInPicture.start(...)` on the surviving widget after one is disposed — disposal clears `setAutoEnterEnabled` globally on Android.
 
 ### Platform support
 
-- Picture-in-Picture APIs are gated at runtime: iOS < 15 and Android < 26 silently no-op.
-- Desktop (macOS/Linux/Windows) and web use a no-op implementation; `PipConfig` is ignored.
-- Lifecycle events on Android 8.0–11 are limited; full event coverage requires API 31+.
+iOS < 15 and Android < 26 silently no-op. Desktop and web are no-ops. Auto-enter on home gesture needs Android 12 (API 31); 8.0–11 must call `start(...)` imperatively. Android TV / Fire TV typically lack PiP and gracefully no-op.
 
 ## License
 
