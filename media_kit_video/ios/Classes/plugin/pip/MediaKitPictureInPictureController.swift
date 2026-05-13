@@ -45,12 +45,43 @@
       displayLayer.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
       displayLayer.isOpaque = false
       displayLayer.backgroundColor = UIColor.clear.cgColor
-      hostView.layer.insertSublayer(displayLayer, at: 0)
+      // Append on top of the host view's sublayers instead of inserting
+      // at index 0. Inserting at index 0 reordered Flutter's compositor
+      // layer, which on iOS caused overlay widgets (controls, top/bottom
+      // bars) to render invisibly while the texture pipeline kept working
+      // — see https://github.com/flutter/flutter/issues/94554. addSublayer
+      // appends to the end of the sublayers array, so Flutter's layer
+      // continues to render normally and our 2x2 transparent layer paints
+      // on top (invisible to the user but VISIBLE to iOS, which is required
+      // for AVPictureInPictureController.canStartPictureInPictureAutomaticallyFromInline
+      // to detect the inline source and auto-enter PiP on background).
+      hostView.layer.addSublayer(displayLayer)
 
       NotificationCenter.default.addObserver(
         self,
         selector: #selector(appDidBecomeActive),
         name: UIApplication.didBecomeActiveNotification,
+        object: nil
+      )
+      // Mirror the Android plugin's ActivityLifecycleCallbacks pattern:
+      // we don't rely solely on AVPictureInPictureController's
+      // canStartPictureInPictureAutomaticallyFromInline (which is
+      // famously flaky — silently no-ops if the audio session isn't
+      // active at the exact moment of background, if no fresh frame
+      // has been enqueued, etc.). Instead we ALSO observe the app
+      // lifecycle and manually trigger PiP when the app is about to
+      // background, as a defensive fallback. startPictureInPicture
+      // is idempotent — if auto-enter already fired, this is a no-op.
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(appWillResignActive),
+        name: UIApplication.willResignActiveNotification,
+        object: nil
+      )
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(appDidEnterBackground),
+        name: UIApplication.didEnterBackgroundNotification,
         object: nil
       )
     }
@@ -66,6 +97,32 @@
       else { return }
       DispatchQueue.main.async {
         controller.stopPictureInPicture()
+      }
+    }
+
+    @objc private func appWillResignActive() {
+      tryStartPipAutomatically()
+    }
+
+    @objc private func appDidEnterBackground() {
+      // Belt-and-suspenders: willResignActive fires first (start of
+      // background transition); didEnterBackground fires after. If
+      // PiP didn't engage on willResignActive (because the controller
+      // wasn't yet in the isPictureInPicturePossible state), try once
+      // more here.
+      tryStartPipAutomatically()
+    }
+
+    /// Manual auto-enter fallback. Called from the lifecycle observers
+    /// above when the app is about to background. Mirrors Android's
+    /// setAutoEnterEnabled behaviour in cases where iOS's own
+    /// canStartPictureInPictureAutomaticallyFromInline doesn't fire.
+    private func tryStartPipAutomatically() {
+      guard let controller = pipController else { return }
+      guard !controller.isPictureInPictureActive else { return }
+      guard controller.isPictureInPicturePossible else { return }
+      DispatchQueue.main.async {
+        controller.startPictureInPicture()
       }
     }
 
