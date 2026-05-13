@@ -516,8 +516,23 @@ class MaterialVideoControlsTheme extends InheritedWidget {
 
   @override
   bool updateShouldNotify(MaterialVideoControlsTheme oldWidget) =>
-      identical(normal, oldWidget.normal) &&
-      identical(fullscreen, oldWidget.fullscreen);
+      // Inverted from the previous implementation. `updateShouldNotify`
+      // returns `true` when dependents must be notified — i.e. when the
+      // theme data has CHANGED. The original returned true when the
+      // instances were identical, which meant a fresh
+      // `MaterialVideoControlsThemeData(...)` constructed on every
+      // ancestor rebuild (different identity) silently failed to
+      // propagate — descendants kept the cached topButtonBar /
+      // bottomButtonBar / etc. from the first build.
+      //
+      // Symptom this fixes: reactive button-bar entries (e.g. an Obx-
+      // wrapped IconButton whose icon depends on Rx state) update their
+      // icon only on the initial mount; subsequent state changes
+      // re-render the Video surface (since `Video.fit` is a direct
+      // widget prop, not theme data) but the button-bar entries stay
+      // frozen on the first-frame icon.
+      !identical(normal, oldWidget.normal) ||
+      !identical(fullscreen, oldWidget.fullscreen);
 }
 
 /// {@macro material_video_controls}
