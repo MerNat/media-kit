@@ -169,63 +169,78 @@ class NativePlayer extends PlatformPlayer {
       }
       // ---------------------------------------------
 
-      // Restore original state & reset public [PlayerState] & [PlayerStream] values e.g. width=null, height=null, subtitle=['', ''] etc.
-      await stop(
-        open: true,
-        synchronized: false,
-      );
+      // Gate the native `playlist-playing-pos` observer (see line ~1604
+      // below) while `stop` + `loadlist` + the explicit jump are in
+      // flight. Without this, mpv's transient internal pos changes
+      // during loadlist processing leak through the public `playlist`
+      // stream BEFORE settling on the index passed to `Playlist(medias,
+      // index: N)`, flickering consumer-visible state across every
+      // intermediate index. The authoritative final state was already
+      // published synchronously above, so consumers see exactly one
+      // event with the right index. Same pattern `setShuffle` uses to
+      // suppress the analogous shuffle-induced burst.
+      isPlaylistStateChangeAllowed = false;
+      try {
+        // Restore original state & reset public [PlayerState] & [PlayerStream] values e.g. width=null, height=null, subtitle=['', ''] etc.
+        await stop(
+          open: true,
+          synchronized: false,
+        );
 
-      // Enter paused state.
-      await _setPropertyFlag('pause', true);
+        // Enter paused state.
+        await _setPropertyFlag('pause', true);
 
-      if (playlist.any((media) => media.uri.startsWith('fd://'))) {
-        // The fd:// scheme is used to reference content:// URIs on Android.
-        // The loadlist command does not support this by default, yielding "Refusing to load potentially unsafe URL from a playlist."
-        // So, we fallback to loading each file individually.
-        for (int i = 0; i < playlist.length; i++) {
+        if (playlist.any((media) => media.uri.startsWith('fd://'))) {
+          // The fd:// scheme is used to reference content:// URIs on Android.
+          // The loadlist command does not support this by default, yielding "Refusing to load potentially unsafe URL from a playlist."
+          // So, we fallback to loading each file individually.
+          for (int i = 0; i < playlist.length; i++) {
+            await _command(
+              [
+                'loadfile',
+                _sanitizeUri(playlist[i].uri),
+                'append',
+              ],
+            );
+          }
+        } else {
+          final file = await TempFile.create();
+          final buffer = StringBuffer();
+          for (final media in playlist) {
+            buffer.writeln(_sanitizeUri(media.uri));
+          }
+          final list = buffer.toString();
+
+          await file.write_(list);
+
           await _command(
             [
-              'loadfile',
-              _sanitizeUri(playlist[i].uri),
+              'loadlist',
+              file.path,
               'append',
             ],
           );
+
+          Future.delayed(const Duration(seconds: 5), () {
+            file.delete_();
+          });
         }
-      } else {
-        final file = await TempFile.create();
-        final buffer = StringBuffer();
-        for (final media in playlist) {
-          buffer.writeln(_sanitizeUri(media.uri));
+
+        // If [play] is `true`, then exit paused state.
+        if (play) {
+          isPlayingStateChangeAllowed = true;
+          await _setPropertyFlag('pause', false);
+          state = state.copyWith(playing: true);
+          if (!playingController.isClosed) {
+            playingController.add(true);
+          }
         }
-        final list = buffer.toString();
 
-        await file.write_(list);
-
-        await _command(
-          [
-            'loadlist',
-            file.path,
-            'append',
-          ],
-        );
-
-        Future.delayed(const Duration(seconds: 5), () {
-          file.delete_();
-        });
+        // Jump to the specified [index] (in both cases either [play] is `true` or `false`).
+        await _setPropertyInt64('playlist-pos', index);
+      } finally {
+        isPlaylistStateChangeAllowed = true;
       }
-
-      // If [play] is `true`, then exit paused state.
-      if (play) {
-        isPlayingStateChangeAllowed = true;
-        await _setPropertyFlag('pause', false);
-        state = state.copyWith(playing: true);
-        if (!playingController.isClosed) {
-          playingController.add(true);
-        }
-      }
-
-      // Jump to the specified [index] (in both cases either [play] is `true` or `false`).
-      await _setPropertyInt64('playlist-pos', index);
     }
 
     if (synchronized) {
