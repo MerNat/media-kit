@@ -1600,7 +1600,11 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
     super.dispose();
   }
 
+  // Pointer/pan handlers bail when unmounted: a drag can outlive the seek
+  // bar (controls auto-hide or the route pops mid-drag), and `context` /
+  // `widget` throw a null-check error after unmount.
   void onPointerMove(PointerMoveEvent e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
@@ -1610,6 +1614,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPointerDown() {
+    if (!mounted) return;
     widget.onSeekStart?.call();
     setState(() {
       tapped = true;
@@ -1617,6 +1622,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPointerUp() {
+    if (!mounted) return;
     widget.onSeekEnd?.call();
     setState(() {
       // Explicitly set the position to prevent the slider from jumping.
@@ -1627,6 +1633,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPanStart(DragStartDetails e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
@@ -1635,6 +1642,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPanDown(DragDownDetails e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
@@ -1643,6 +1651,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPanUpdate(DragUpdateDetails e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
