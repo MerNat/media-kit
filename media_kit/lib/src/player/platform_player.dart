@@ -515,6 +515,23 @@ class PlayerConfiguration {
   /// Learn more: https://ffmpeg.org/ffmpeg-protocols.html#Protocol-Options
   final List<String> protocolWhitelist;
 
+  /// Whether [Player] should let mpv configure and activate the global
+  /// `AVAudioSession` on iOS.
+  ///
+  /// When `false`, the AudioUnit audio output skips `setCategory`,
+  /// `setActive:YES` on init, and `setActive:NO` on dispose — leaving the
+  /// session under the embedder's control.
+  ///
+  /// `AVAudioSession` is process-wide on iOS, so when more than one
+  /// component manages audio (e.g. another player or a custom coordinator),
+  /// only one of them should own the session — otherwise their category and
+  /// activation calls will conflict and cause playback issues.
+  ///
+  /// No effect on platforms other than iOS.
+  ///
+  /// Default: `true`.
+  final bool iosManageAudioSession;
+
   /// Tuning for ffmpeg's network demuxer behaviour. Use this to enable
   /// HTTP reconnect (`stream-lavf-o=reconnect=1,...`) for live streams,
   /// override mpv's default 5 second `network-timeout`, or pass extra
@@ -552,6 +569,7 @@ class PlayerConfiguration {
       'https',
       'crypto',
     ],
+    this.iosManageAudioSession = true,
     this.network = const NetworkConfiguration(),
   });
 }
