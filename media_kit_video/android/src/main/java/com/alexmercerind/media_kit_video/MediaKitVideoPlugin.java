@@ -83,6 +83,12 @@ public class MediaKitVideoPlugin implements FlutterPlugin, MethodCallHandler, Ac
 
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+        // Release outputs while the engine's texture registry is still alive;
+        // see VideoOutputManager.disposeAll.
+        if (videoOutputManager != null) {
+            videoOutputManager.disposeAll();
+            videoOutputManager = null;
+        }
         channel.setMethodCallHandler(null);
         if (pictureInPictureManager != null) {
             pictureInPictureManager.dispose();
