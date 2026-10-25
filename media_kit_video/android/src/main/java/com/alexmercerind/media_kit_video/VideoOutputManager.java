@@ -46,6 +46,26 @@ public class VideoOutputManager {
         }
     }
 
+    /**
+     * Disposes every output still alive. Called when the plugin detaches from
+     * its engine: outputs the Dart side never disposed (the engine was
+     * destroyed from under it, e.g. the Activity finished) would otherwise be
+     * left to the garbage collector, and {@code SurfaceTextureSurfaceProducer}'s
+     * finalizer then calls {@code SurfaceTexture.release()} on an object whose
+     * native half may already be finalized — a null dereference in libgui
+     * (flutter/flutter#160971). An explicit release marks the producer released
+     * so that finalizer is a no-op.
+     */
+    public void disposeAll() {
+        synchronized (lock) {
+            for (VideoOutput videoOutput : videoOutputs.values()) {
+                Log.i(TAG, "com.alexmercerind.media_kit_video.VideoOutputManager.disposeAll");
+                videoOutput.dispose();
+            }
+            videoOutputs.clear();
+        }
+    }
+
     public void setSurfaceSize(long handle, int width, int height) {
         synchronized (lock) {
             Log.i(TAG, String.format(Locale.ENGLISH, "com.alexmercerind.media_kit_video.VideoOutputManager.setSurfaceSize: %d %d %d", handle, width, height));
