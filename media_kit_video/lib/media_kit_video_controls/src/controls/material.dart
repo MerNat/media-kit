@@ -516,8 +516,23 @@ class MaterialVideoControlsTheme extends InheritedWidget {
 
   @override
   bool updateShouldNotify(MaterialVideoControlsTheme oldWidget) =>
-      identical(normal, oldWidget.normal) &&
-      identical(fullscreen, oldWidget.fullscreen);
+      // Inverted from the previous implementation. `updateShouldNotify`
+      // returns `true` when dependents must be notified — i.e. when the
+      // theme data has CHANGED. The original returned true when the
+      // instances were identical, which meant a fresh
+      // `MaterialVideoControlsThemeData(...)` constructed on every
+      // ancestor rebuild (different identity) silently failed to
+      // propagate — descendants kept the cached topButtonBar /
+      // bottomButtonBar / etc. from the first build.
+      //
+      // Symptom this fixes: reactive button-bar entries (e.g. an Obx-
+      // wrapped IconButton whose icon depends on Rx state) update their
+      // icon only on the initial mount; subsequent state changes
+      // re-render the Video surface (since `Video.fit` is a direct
+      // widget prop, not theme data) but the button-bar entries stay
+      // frozen on the first-frame icon.
+      !identical(normal, oldWidget.normal) ||
+      !identical(fullscreen, oldWidget.fullscreen);
 }
 
 /// {@macro material_video_controls}
@@ -1585,7 +1600,11 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
     super.dispose();
   }
 
+  // Pointer/pan handlers bail when unmounted: a drag can outlive the seek
+  // bar (controls auto-hide or the route pops mid-drag), and `context` /
+  // `widget` throw a null-check error after unmount.
   void onPointerMove(PointerMoveEvent e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
@@ -1595,6 +1614,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPointerDown() {
+    if (!mounted) return;
     widget.onSeekStart?.call();
     setState(() {
       tapped = true;
@@ -1602,6 +1622,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPointerUp() {
+    if (!mounted) return;
     widget.onSeekEnd?.call();
     setState(() {
       // Explicitly set the position to prevent the slider from jumping.
@@ -1612,6 +1633,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPanStart(DragStartDetails e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
@@ -1620,6 +1642,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPanDown(DragDownDetails e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
@@ -1628,6 +1651,7 @@ class MaterialSeekBarState extends State<MaterialSeekBar> {
   }
 
   void onPanUpdate(DragUpdateDetails e, BoxConstraints constraints) {
+    if (!mounted) return;
     final percent = e.localPosition.dx / constraints.maxWidth;
     setState(() {
       tapped = true;
