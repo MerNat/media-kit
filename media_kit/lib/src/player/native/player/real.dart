@@ -397,7 +397,9 @@ class NativePlayer extends PlatformPlayer {
       // This condition is specifically for the case when the internal playlist is ended (with [PlaylistLoopMode.none]), and we want to play the playlist again if play/pause is pressed.
       if (state.completed) {
         await seek(Duration.zero, synchronized: false);
-        await _setPropertyInt64('playlist-pos', 0);
+        if (_completedAtLastEntry) {
+          await _setPropertyInt64('playlist-pos', 0);
+        }
       }
       await _setPropertyFlag('pause', false);
     }
@@ -408,6 +410,14 @@ class NativePlayer extends PlatformPlayer {
       return function();
     }
   }
+
+  /// Whether the entry that reached end-of-file is the last one in the
+  /// playlist. Only then does a play press rewind to entry 0 (play the
+  /// playlist again). With `keep-open=always` an earlier entry can reach
+  /// EOF and stay loaded; a play press then restarts that entry instead of
+  /// jumping back to the first file.
+  bool get _completedAtLastEntry =>
+      state.playlist.index >= state.playlist.medias.length - 1;
 
   /// Pauses the [Player].
   @override
@@ -465,7 +475,9 @@ class NativePlayer extends PlatformPlayer {
       // This condition is specifically for the case when the internal playlist is ended (with [PlaylistLoopMode.none]), and we want to play the playlist again if play/pause is pressed.
       if (state.completed) {
         await seek(Duration.zero, synchronized: false);
-        await _setPropertyInt64('playlist-pos', 0);
+        if (_completedAtLastEntry) {
+          await _setPropertyInt64('playlist-pos', 0);
+        }
       }
       await _command(['cycle', 'pause']);
     }
